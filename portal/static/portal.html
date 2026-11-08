@@ -1,0 +1,361 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Training Portal</title>
+<link rel="stylesheet" href="/static/style.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js"></script>
+</head>
+<body>
+<header>
+  <div class="bar">
+    <h1 id="title">Training Portal</h1>
+    <button class="link" id="lang-btn">中文</button>
+  </div>
+  <nav class="tabs">
+    <button data-tab="chat" class="active" data-i18n="tabChat">Coach chat</button>
+    <button data-tab="files" data-i18n="tabFiles">My documents</button>
+    <button data-tab="practice" data-i18n="tabPractice">Practice</button>
+  </nav>
+</header>
+
+<main>
+  <div id="fatal" class="card error hidden"></div>
+
+  <!-- CHAT -->
+  <section id="tab-chat">
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px">
+        <span class="muted" data-i18n="chatHint">Ask about your report, question types, or how to practice. Uploaded documents are shared with the coach bot automatically.</span>
+        <button id="new-chat" data-i18n="newChat">New chat</button>
+      </div>
+      <div id="chat-log"></div>
+      <div class="composer">
+        <textarea id="chat-input" rows="2" data-i18n-ph="chatPlaceholder" placeholder="Type your question…"></textarea>
+        <button class="primary" id="send" data-i18n="send">Send</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- FILES -->
+  <section id="tab-files" class="hidden">
+    <div class="card">
+      <div class="drop" id="drop">
+        <div data-i18n="dropText">Drop files here or click to upload</div>
+        <div class="muted" data-i18n="dropTypes">PDF, images (PNG/JPG/WEBP/GIF), TXT or MD · up to 30 MB</div>
+        <input type="file" id="file-input" multiple class="hidden" accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.txt,.md">
+      </div>
+      <div id="upload-status" class="muted" style="margin-top:8px"></div>
+    </div>
+    <div class="card">
+      <div id="file-list"></div>
+    </div>
+  </section>
+
+  <!-- PRACTICE -->
+  <section id="tab-practice" class="hidden">
+    <div id="practice-home">
+      <div class="card">
+        <div class="grid">
+          <div>
+            <label data-i18n="area">Area</label>
+            <select id="p-area">
+              <option value="mixed" data-i18n="aMixed">Mixed (focus on weak areas)</option>
+              <option value="verbal" data-i18n="aVerbal">Verbal reasoning</option>
+              <option value="numerical" data-i18n="aNumerical">Numerical reasoning</option>
+              <option value="pattern" data-i18n="aPattern">Pattern / series</option>
+              <option value="logic" data-i18n="aLogic">Logical deduction</option>
+              <option value="spatial" data-i18n="aSpatial">Spatial (text-based)</option>
+              <option value="memory" data-i18n="aMemory">Working memory</option>
+            </select>
+          </div>
+          <div>
+            <label data-i18n="difficulty">Difficulty</label>
+            <select id="p-diff">
+              <option value="adaptive" data-i18n="dAdaptive">Adaptive (based on my results)</option>
+              <option value="easy" data-i18n="dEasy">Easy</option>
+              <option value="medium" data-i18n="dMedium">Medium</option>
+              <option value="hard" data-i18n="dHard">Hard</option>
+            </select>
+          </div>
+          <div>
+            <label data-i18n="count">Questions</label>
+            <select id="p-count"><option>5</option><option selected>10</option><option>15</option><option>20</option></select>
+          </div>
+        </div>
+        <div style="margin-top:12px">
+          <label data-i18n="focus">Anything specific to focus on? (optional)</label>
+          <input id="p-focus" maxlength="500" data-i18n-ph="focusPh" placeholder="e.g. number series with two interleaved patterns">
+        </div>
+        <div style="margin-top:12px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+          <button class="primary" id="p-generate" data-i18n="generate">Generate practice set</button>
+          <span id="p-status" class="muted"></span>
+        </div>
+      </div>
+      <div class="card">
+        <h3 style="margin-top:0" data-i18n="history">My practice sets</h3>
+        <div id="set-list"></div>
+      </div>
+    </div>
+    <div id="practice-set" class="card hidden"></div>
+  </section>
+</main>
+
+<script>
+const TOKEN = location.pathname.split("/").filter(Boolean)[1] || "";
+const I18N = {
+  en: {},
+  zh: {
+    tabChat: "教练问答", tabFiles: "我的文件", tabPractice: "专项练习",
+    chatHint: "可以询问你的报告、题型或练习方法。上传的文件会自动提供给教练机器人。",
+    newChat: "新对话", send: "发送", chatPlaceholder: "输入你的问题…",
+    dropText: "拖拽文件到这里，或点击上传", dropTypes: "PDF、图片（PNG/JPG/WEBP/GIF）、TXT 或 MD · 最大 30 MB",
+    area: "领域", difficulty: "难度", count: "题目数量", focus: "有想重点练习的内容吗？（可选）",
+    focusPh: "例如：含两种交替规律的数列", generate: "生成练习题", history: "我的练习记录",
+    aMixed: "综合（侧重薄弱项）", aVerbal: "言语推理", aNumerical: "数字推理", aPattern: "图形/序列规律",
+    aLogic: "逻辑推理", aSpatial: "空间推理（文字描述）", aMemory: "工作记忆",
+    dAdaptive: "自适应（根据我的成绩）", dEasy: "简单", dMedium: "中等", dHard: "困难",
+    generating: "正在生成定制题目，大约需要 1–2 分钟…", noFiles: "还没有上传文件。",
+    noSets: "还没有练习记录。生成第一套题吧！", submit: "提交答案", back: "← 返回",
+    answered: "已答", score: "得分", notDone: "未完成", del: "删除", view: "查看",
+    uploading: "正在上传", uploaded: "上传完成", confirmDel: "确定删除这个文件吗？之后的新对话将不再使用它。",
+    explanation: "解析", yourAnswer: "你的答案", unanswered: "还有题目未作答，确定提交吗？",
+    emptyChat: "你好！我是你的训练教练助手。可以先在“我的文件”上传测试报告，然后问我任何问题。",
+  },
+};
+let lang = localStorage.getItem("lang") || (navigator.language.startsWith("zh") ? "zh" : "en");
+const t = (k, fallback) => (I18N[lang] && I18N[lang][k]) || fallback || k;
+const EN_DEFAULTS = {
+  generating: "Generating your customized set — this takes about 1–2 minutes…", noFiles: "No documents uploaded yet.",
+  noSets: "No practice sets yet. Generate your first one!", submit: "Submit answers", back: "← Back",
+  answered: "answered", score: "Score", notDone: "Not finished", del: "Delete", view: "View",
+  uploading: "Uploading", uploaded: "Uploaded", confirmDel: "Delete this file? New conversations will no longer use it.",
+  explanation: "Explanation", yourAnswer: "Your answer", unanswered: "Some questions are unanswered. Submit anyway?",
+  emptyChat: "Hi! I'm your training coach assistant. Upload your test report under “My documents”, then ask me anything.",
+};
+const tt = (k) => t(k, EN_DEFAULTS[k]);
+
+function applyLang() {
+  document.querySelectorAll("[data-i18n]").forEach(el => {
+    if (!el.dataset.en) el.dataset.en = el.textContent;
+    el.textContent = lang === "en" ? el.dataset.en : t(el.dataset.i18n, el.dataset.en);
+  });
+  document.querySelectorAll("[data-i18n-ph]").forEach(el => {
+    if (!el.dataset.enPh) el.dataset.enPh = el.placeholder;
+    el.placeholder = lang === "en" ? el.dataset.enPh : t(el.dataset.i18nPh, el.dataset.enPh);
+  });
+  document.getElementById("lang-btn").textContent = lang === "en" ? "中文" : "English";
+  document.documentElement.lang = lang === "zh" ? "zh-CN" : "en";
+}
+document.getElementById("lang-btn").onclick = () => {
+  lang = lang === "en" ? "zh" : "en"; localStorage.setItem("lang", lang); applyLang();
+  loadFiles(); loadSets(); if (!chatState.messages.length) renderChat();
+};
+
+async function api(path, opts = {}) {
+  const res = await fetch(path, { ...opts, headers: { "X-Client-Token": TOKEN, ...(opts.headers || {}) } });
+  if (!res.ok) {
+    let msg = res.statusText;
+    try { msg = (await res.json()).detail || msg; } catch {}
+    throw new Error(typeof msg === "string" ? msg : JSON.stringify(msg));
+  }
+  return res;
+}
+const esc = (s) => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const md = (s) => DOMPurify.sanitize(marked.parse(s || ""));
+
+// ---------- tabs
+document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => {
+  document.querySelectorAll(".tabs button").forEach(x => x.classList.toggle("active", x === b));
+  ["chat", "files", "practice"].forEach(n => document.getElementById("tab-" + n).classList.toggle("hidden", n !== b.dataset.tab));
+});
+
+// ---------- chat
+const chatState = { id: null, messages: [], busy: false };
+const log = document.getElementById("chat-log");
+function renderChat() {
+  log.innerHTML = "";
+  if (!chatState.messages.length) {
+    log.innerHTML = `<div class="msg assistant">${esc(tt("emptyChat"))}</div>`;
+  }
+  chatState.messages.forEach(m => {
+    const div = document.createElement("div");
+    div.className = "msg " + m.role;
+    if (m.role === "user") div.textContent = m.text; else div.innerHTML = md(m.text);
+    log.appendChild(div);
+  });
+  log.scrollTop = log.scrollHeight;
+}
+async function loadChat(fresh = false) {
+  const res = await api(fresh ? "/api/chat/new" : "/api/chat", { method: fresh ? "POST" : "GET" });
+  const data = await res.json();
+  chatState.id = data.conversation_id; chatState.messages = data.messages; renderChat();
+}
+document.getElementById("new-chat").onclick = () => !chatState.busy && loadChat(true);
+
+const input = document.getElementById("chat-input"), sendBtn = document.getElementById("send");
+input.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } });
+sendBtn.onclick = send;
+async function send() {
+  const text = input.value.trim();
+  if (!text || chatState.busy) return;
+  chatState.busy = true; sendBtn.disabled = true; input.value = "";
+  chatState.messages.push({ role: "user", text });
+  const reply = { role: "assistant", text: "" };
+  chatState.messages.push(reply);
+  renderChat();
+  const bubble = log.lastElementChild; bubble.classList.add("typing");
+  try {
+    const res = await api("/api/chat", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ conversation_id: chatState.id, message: text }),
+    });
+    const reader = res.body.getReader(), dec = new TextDecoder();
+    let buf = "";
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let i;
+      while ((i = buf.indexOf("\n\n")) >= 0) {
+        const line = buf.slice(0, i); buf = buf.slice(i + 2);
+        if (!line.startsWith("data: ")) continue;
+        const ev = JSON.parse(line.slice(6));
+        if (ev.type === "text") { reply.text += ev.text; bubble.innerHTML = md(reply.text); log.scrollTop = log.scrollHeight; }
+        else if (ev.type === "error") { throw new Error(ev.message); }
+      }
+    }
+  } catch (err) {
+    chatState.messages.splice(-2, 2); // the turn was not saved; give the text back
+    input.value = text; renderChat();
+    const e = document.createElement("div"); e.className = "msg assistant error"; e.textContent = err.message; log.appendChild(e);
+  } finally {
+    bubble.classList.remove("typing"); chatState.busy = false; sendBtn.disabled = false; input.focus();
+  }
+}
+
+// ---------- files
+const fileInput = document.getElementById("file-input"), drop = document.getElementById("drop");
+drop.onclick = () => fileInput.click();
+drop.ondragover = e => { e.preventDefault(); drop.classList.add("over"); };
+drop.ondragleave = () => drop.classList.remove("over");
+drop.ondrop = e => { e.preventDefault(); drop.classList.remove("over"); uploadFiles(e.dataTransfer.files); };
+fileInput.onchange = () => { uploadFiles(fileInput.files); fileInput.value = ""; };
+async function uploadFiles(files) {
+  const status = document.getElementById("upload-status");
+  for (const f of files) {
+    status.textContent = `${tt("uploading")}: ${f.name}…`; status.classList.remove("error");
+    const fd = new FormData(); fd.append("file", f);
+    try { await api("/api/files", { method: "POST", body: fd }); status.textContent = `${tt("uploaded")}: ${f.name}`; }
+    catch (err) { status.textContent = `${f.name}: ${err.message}`; status.classList.add("error"); }
+  }
+  loadFiles();
+}
+async function loadFiles() {
+  const files = await (await api("/api/files")).json();
+  const el = document.getElementById("file-list");
+  el.innerHTML = files.length ? "" : `<div class="muted">${esc(tt("noFiles"))}</div>`;
+  files.forEach(f => {
+    const row = document.createElement("div"); row.className = "file-row";
+    row.innerHTML = `<span class="name">${esc(f.filename)}</span><span class="muted">${(f.size / 1024).toFixed(0)} KB</span>
+      <button class="link" data-act="view">${esc(tt("view"))}</button><button class="link" data-act="del">${esc(tt("del"))}</button>`;
+    row.querySelector('[data-act="view"]').onclick = async () => {
+      const blob = await (await api(`/api/files/${f.id}/raw`)).blob();
+      window.open(URL.createObjectURL(blob), "_blank");
+    };
+    row.querySelector('[data-act="del"]').onclick = async () => {
+      if (confirm(tt("confirmDel"))) { await api(`/api/files/${f.id}`, { method: "DELETE" }); loadFiles(); }
+    };
+    el.appendChild(row);
+  });
+}
+
+// ---------- practice
+const genBtn = document.getElementById("p-generate"), pStatus = document.getElementById("p-status");
+genBtn.onclick = async () => {
+  genBtn.disabled = true; pStatus.textContent = tt("generating"); pStatus.classList.remove("error");
+  try {
+    const res = await api("/api/practice", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        area: document.getElementById("p-area").value, difficulty: document.getElementById("p-diff").value,
+        count: +document.getElementById("p-count").value, focus: document.getElementById("p-focus").value,
+      }),
+    });
+    pStatus.textContent = ""; showSet(await res.json()); loadSets();
+  } catch (err) { pStatus.textContent = err.message; pStatus.classList.add("error"); }
+  finally { genBtn.disabled = false; }
+};
+async function loadSets() {
+  const sets = await (await api("/api/practice")).json();
+  const el = document.getElementById("set-list");
+  el.innerHTML = sets.length ? "" : `<div class="muted">${esc(tt("noSets"))}</div>`;
+  sets.forEach(s => {
+    const row = document.createElement("div"); row.className = "set-row";
+    const when = new Date(s.created_at * 1000).toLocaleDateString();
+    row.innerHTML = `<span class="name">${esc(s.title)}<div class="muted">${when}</div></span>
+      <span class="pill">${s.submitted ? `${s.score}/${s.total}` : esc(tt("notDone"))}</span>`;
+    row.onclick = async () => showSet(await (await api(`/api/practice/${s.id}`)).json());
+    el.appendChild(row);
+  });
+}
+function showSet(s) {
+  document.getElementById("practice-home").classList.add("hidden");
+  const box = document.getElementById("practice-set"); box.classList.remove("hidden");
+  const letters = "ABCDEF";
+  let html = `<button class="link" id="set-back">${esc(tt("back"))}</button>
+    <h2 style="margin:8px 0 4px">${esc(s.title)}</h2><p class="muted">${esc(s.rationale)}</p>`;
+  if (s.submitted) html += `<p><span class="score">${s.score}/${s.total}</span></p>`;
+  s.questions.forEach((q, i) => {
+    html += `<div class="q"><div class="muted">${i + 1}/${s.total} · ${esc(q.area)} · ${"★".repeat(Math.max(1, Math.min(5, q.difficulty)))}</div>
+      <div class="q-prompt">${esc(q.prompt)}</div>`;
+    q.options.forEach((o, j) => {
+      let cls = "";
+      if (s.submitted) {
+        if (j === q.correct_index) cls = "correct";
+        else if (s.answers[i] === j) cls = "wrong";
+      }
+      html += `<label class="opt ${cls}"><input type="radio" name="q${i}" value="${j}" ${s.submitted ? "disabled" : ""}
+        ${s.submitted && s.answers[i] === j ? "checked" : ""}><span><b>${letters[j]}.</b> ${esc(o)}</span></label>`;
+    });
+    if (s.submitted) html += `<div class="explain"><b>${esc(tt("explanation"))}:</b> ${esc(q.explanation)}</div>`;
+    html += `</div>`;
+  });
+  if (!s.submitted) html += `<button class="primary" id="set-submit">${esc(tt("submit"))}</button>`;
+  box.innerHTML = html;
+  box.scrollIntoView();
+  document.getElementById("set-back").onclick = () => {
+    box.classList.add("hidden"); document.getElementById("practice-home").classList.remove("hidden");
+  };
+  const submit = document.getElementById("set-submit");
+  if (submit) submit.onclick = async () => {
+    const answers = s.questions.map((_, i) => {
+      const c = box.querySelector(`input[name="q${i}"]:checked`); return c ? +c.value : null;
+    });
+    if (answers.includes(null) && !confirm(tt("unanswered"))) return;
+    submit.disabled = true;
+    const res = await api(`/api/practice/${s.id}/submit`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ answers }),
+    });
+    showSet(await res.json()); loadSets();
+  };
+}
+
+// ---------- boot
+(async () => {
+  applyLang();
+  try {
+    const me = await (await api("/api/me")).json();
+    document.getElementById("title").textContent = me.name;
+    document.title = me.name + " · Training Portal";
+    await Promise.all([loadChat(), loadFiles(), loadSets()]);
+  } catch (err) {
+    const f = document.getElementById("fatal"); f.textContent = err.message; f.classList.remove("hidden");
+    document.querySelectorAll("section, nav").forEach(s => s.classList.add("hidden"));
+  }
+})();
+</script>
+</body>
+</html>

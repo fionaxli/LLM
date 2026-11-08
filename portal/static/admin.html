@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Coach Admin</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header><div class="bar"><h1>Coach admin</h1><button class="link hidden" id="logout">Log out</button></div></header>
+<main>
+  <div id="login" class="card">
+    <label>Admin password</label>
+    <div class="composer" style="margin-top:0">
+      <input type="password" id="pw" autocomplete="current-password">
+      <button class="primary" id="login-btn">Log in</button>
+    </div>
+    <div id="login-err" class="error"></div>
+  </div>
+
+  <div id="app" class="hidden">
+    <div class="card">
+      <h3 style="margin-top:0">New client</h3>
+      <div class="grid">
+        <div><label>Name</label><input id="c-name" maxlength="200"></div>
+      </div>
+      <div style="margin-top:12px">
+        <label>Coach notes (the bot sees these — goals, test date, observations, preferred language)</label>
+        <textarea id="c-notes" rows="3" maxlength="5000"></textarea>
+      </div>
+      <button class="primary" id="c-create" style="margin-top:12px">Create portal</button>
+    </div>
+    <div class="card"><h3 style="margin-top:0">Clients</h3><div id="clients"></div></div>
+    <div class="card hidden" id="detail"></div>
+  </div>
+</main>
+<script>
+let PW = sessionStorage.getItem("adminPw") || "";
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+async function api(path, opts = {}) {
+  const res = await fetch(path, { ...opts, headers: { "X-Admin-Password": PW, "Content-Type": "application/json", ...(opts.headers || {}) } });
+  if (!res.ok) { let m = res.statusText; try { m = (await res.json()).detail || m; } catch {} throw new Error(m); }
+  return res;
+}
+const portalUrl = (c) => `${location.origin}/p/${c.token}`;
+
+async function login() {
+  try {
+    await loadClients();
+    sessionStorage.setItem("adminPw", PW);
+    document.getElementById("login").classList.add("hidden");
+    document.getElementById("app").classList.remove("hidden");
+    document.getElementById("logout").classList.remove("hidden");
+  } catch (e) { document.getElementById("login-err").textContent = e.message; }
+}
+document.getElementById("login-btn").onclick = () => { PW = document.getElementById("pw").value; login(); };
+document.getElementById("pw").onkeydown = (e) => { if (e.key === "Enter") document.getElementById("login-btn").click(); };
+document.getElementById("logout").onclick = () => { sessionStorage.removeItem("adminPw"); location.reload(); };
+
+document.getElementById("c-create").onclick = async () => {
+  const name = document.getElementById("c-name").value.trim();
+  if (!name) return;
+  const c = await (await api("/api/admin/clients", {
+    method: "POST", body: JSON.stringify({ name, notes: document.getElementById("c-notes").value }),
+  })).json();
+  document.getElementById("c-name").value = ""; document.getElementById("c-notes").value = "";
+  await loadClients(); showDetail(c.id);
+};
+
+async function loadClients() {
+  const clients = await (await api("/api/admin/clients")).json();
+  const el = document.getElementById("clients");
+  el.innerHTML = clients.length ? "" : '<div class="muted">No clients yet.</div>';
+  clients.forEach(c => {
+    const row = document.createElement("div"); row.className = "set-row";
+    row.innerHTML = `<span class="name">${esc(c.name)}<div class="muted">${c.file_count} files · ${c.sets_done} sets done</div></span>
+      <button class="link" data-act="copy">Copy link</button>`;
+    row.onclick = () => showDetail(c.id);
+    row.querySelector('[data-act="copy"]').onclick = (e) => {
+      e.stopPropagation(); navigator.clipboard.writeText(portalUrl(c)); e.target.textContent = "Copied!";
+    };
+    el.appendChild(row);
+  });
+}
+
+async function showDetail(id) {
+  const d = await (await api(`/api/admin/clients/${id}`)).json();
+  const c = d.client, box = document.getElementById("detail");
+  box.classList.remove("hidden");
+  box.innerHTML = `
+    <h3 style="margin-top:0">${esc(c.name)}</h3>
+    <label>Private portal link — send this to the client (anyone with the link can open the portal)</label>
+    <div class="composer" style="margin-top:0"><input readonly value="${esc(portalUrl(c))}" id="d-link"><button id="d-copy">Copy</button></div>
+    <div style="margin-top:12px"><label>Coach notes (seen by the bot)</label>
+      <textarea id="d-notes" rows="4">${esc(c.notes)}</textarea>
+      <button id="d-save" style="margin-top:8px">Save notes</button> <span id="d-saved" class="muted"></span></div>
+    <h4>Documents</h4>
+    <div>${d.files.map(f => `<div class="file-row"><span class="name">${esc(f.filename)}</span>
+      <button class="link" data-file="${f.id}">View</button></div>`).join("") || '<div class="muted">None uploaded.</div>'}</div>
+    <h4>Practice</h4>
+    <div class="explain">${esc(d.progress)}</div>
+    <div>${d.practice_sets.map(s => `<div class="file-row"><span class="name">${esc(s.title)}</span>
+      <span class="pill">${s.submitted ? `${s.score}/${s.total}` : "not finished"}</span></div>`).join("")}</div>
+    <div style="margin-top:16px"><button id="d-delete" class="error">Delete client and all their data</button></div>`;
+  box.querySelector("#d-copy").onclick = () => navigator.clipboard.writeText(portalUrl(c));
+  box.querySelector("#d-save").onclick = async () => {
+    await api(`/api/admin/clients/${id}`, { method: "PATCH", body: JSON.stringify({ notes: box.querySelector("#d-notes").value }) });
+    box.querySelector("#d-saved").textContent = "Saved.";
+  };
+  box.querySelectorAll("[data-file]").forEach(b => b.onclick = async () => {
+    const blob = await (await api(`/api/admin/clients/${id}/files/${b.dataset.file}/raw`)).blob();
+    window.open(URL.createObjectURL(blob), "_blank");
+  });
+  box.querySelector("#d-delete").onclick = async () => {
+    if (!confirm(`Delete ${c.name}? This removes their documents, chats and practice history.`)) return;
+    await api(`/api/admin/clients/${id}`, { method: "DELETE" });
+    box.classList.add("hidden"); loadClients();
+  };
+  box.scrollIntoView({ behavior: "smooth" });
+}
+if (PW) login();
+</script>
+</body>
+</html>
